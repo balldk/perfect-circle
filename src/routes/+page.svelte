@@ -1,7 +1,14 @@
 <script lang="ts">
 	import { Matrix } from 'ml-matrix'
-	import { Stage, Shape, Ticker, Container, Text } from 'createjs-module'
+	import { Stage, Shape, Ticker, Container, Text } from '@createjs/easeljs'
 	import { onMount } from 'svelte'
+	import { approx, easeInOutCubic } from '$lib/helpers'
+	import { fade, slide } from 'svelte/transition'
+
+	import Fa from 'svelte-fa'
+	import { faGithub, faFacebook } from '@fortawesome/free-brands-svg-icons'
+
+	const primaryColor = '#9A3B3B'
 
 	let isDrawing = false
 	let isCircling = false
@@ -11,13 +18,14 @@
 	let stage: Stage
 
 	let circle = new Shape()
-	let hand = new Shape()
+	let handClock = new Shape()
 	let graphicPoints = new Container()
-	let txt = new Text()
+	let percentTxt = new Text('', '0px "Playpen Sans"', 'black')
 
-	let points = new Matrix([[0], [0]])
-	let n = 0
+	let points = new Matrix([])
 	let errMsg = ''
+	let msg = ''
+	let bestScore = 0
 
 	onMount(() => {
 		const dpr = 1.4
@@ -34,12 +42,18 @@
 		stage.scaleX = dpr
 		stage.scaleY = dpr
 		stage.addChild(circle)
-		stage.addChild(hand)
+		stage.addChild(handClock)
 		stage.addChild(graphicPoints)
-		stage.addChild(txt)
+		stage.addChild(percentTxt)
 
-		Ticker.framerate = 20
-		Ticker.interval = 1
+		// Ticker.framerate = 60
+		Ticker.interval = 5
+
+		bestScore = parseFloat(localStorage.getItem('bestScore') || '0')
+		msg =
+			bestScore != 0
+				? `Personal record: ${(bestScore * 100).toFixed(1)}%`
+				: 'Draw any circle on the screen'
 	})
 
 	function draw(e: MouseEvent) {
@@ -47,10 +61,10 @@
 			let x = [e.clientX - canvas.offsetLeft, e.clientY]
 			const point = new Shape()
 
-			if (n == 0) {
-				points.setColumn(0, x)
+			if (points.size === 0) {
+				points = new Matrix([[x[0]], [x[1]]])
 
-				point.graphics.beginFill('#9A3B3B').drawCircle(x[0], x[1], 5)
+				point.graphics.beginFill(primaryColor).drawCircle(x[0], x[1], 5)
 				graphicPoints.addChild(point)
 				stage.update()
 			} else {
@@ -66,23 +80,10 @@
 				graphicPoints.addChild(point)
 				stage.update()
 			}
-
-			n += 1
 		}
 	}
 
-	function approx(a: number, b: number, eps = 0.00001): boolean {
-		return Math.abs(a - b) < eps
-	}
-	function easeInOutCubic(x: number): number {
-		return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2
-	}
-
-	function calculateScore() {
-		if (points.size <= 2) {
-			return
-		}
-
+	function gradientDescent(): [Matrix, number, number[], number] {
 		let normCoef = points.max()
 		points.div(normCoef)
 		let X = points.subMatrixRow([0])
@@ -93,10 +94,9 @@
 		const ty = Matrix.pow(Matrix.subtract(Y, center.get(1, 0)), 2)
 		let r = Matrix.add(tx, ty).sqrt().mean()
 
-		// gradient descent
-		const nstep = 300
-		const errors = []
-		const learningRate = 0.01
+		const nstep = 200
+		const errors: number[] = []
+		const learningRate = 0.02
 
 		for (let i = 0; i < nstep; i++) {
 			const tx = Matrix.subtract(X, center.get(0, 0)).mul(-1)
@@ -113,17 +113,65 @@
 			center.subtract(Matrix.mul(Dc, learningRate))
 			r = r - Dr * learningRate
 
-			const err = sqModule.sqrt().subtract(r).abs().mean()
+			const err = sqModule.sqrt().subtract(r).abs().mul(normCoef).mean()
 			errors.push(err)
 		}
 		r = r * normCoef
 		center.mul(normCoef)
 
-		console.clear()
+		return [center, r, errors, normCoef]
+	}
 
+	function circling(center: Matrix, r: number, perfectRate: number, callback: Function) {
+		isCircling = true
+		let startAngle = (3 / 2) * Math.PI
+		let angle = startAngle
+		let t = 0
+		let dt = 0.004
+
+		stage.setChildIndex(circle, stage.numChildren - 1)
+		stage.setChildIndex(handClock, stage.numChildren - 1)
+		stage.setChildIndex(percentTxt, stage.numChildren - 1)
+		Ticker.addEventListener('tick', (e) => {
+			circle.graphics
+				.clear()
+				.setStrokeStyle(3, 'round', 'round')
+				.beginStroke(primaryColor)
+				.arc(center.get(0, 0), center.get(1, 0), r, startAngle, angle, false)
+
+			handClock.graphics
+				.clear()
+				.setStrokeStyle(3)
+				.beginStroke(primaryColor)
+				.moveTo(center.get(0, 0), center.get(1, 0))
+				.lineTo(
+					r * Math.cos(angle) + center.get(0, 0),
+					r * Math.sin(angle) + center.get(1, 0)
+				)
+				.endStroke()
+
+			if (approx(t, 1)) {
+				Ticker.removeAllEventListeners()
+				isCircling = false
+				callback()
+			}
+			stage.update()
+			angle = 2 * Math.PI * easeInOutCubic(t) + startAngle
+			t += dt
+		})
+	}
+
+	function onMouseUp() {
+		isDrawing = false
+		if (points.size <= 2) {
+			return
+		}
+
+		const [center, r, errors, normCoef] = gradientDescent()
 		const err = errors[errors.length - 1]
-		let perfectRate = 1 - (2 * err) / (r / normCoef)
+		let perfectRate = 1 - (2 * err) / r
 
+		console.clear()
 		console.table({
 			r: r,
 			center: `(${center.get(0, 0)}, ${center.get(1, 0)})`,
@@ -142,67 +190,39 @@
 			errMsg = 'Not a closed loop'
 		}
 
-		points = new Matrix([[0], [0]])
-		n = 0
+		points = new Matrix([])
 		if (errMsg.length != 0) {
 			return
 		}
 
-		isCircling = true
-		let startAngle = (3 / 2) * Math.PI
-		let angle = startAngle
-		let t = 0
-
-		stage.setChildIndex(circle, stage.numChildren - 1)
-		stage.setChildIndex(hand, stage.numChildren - 1)
-		stage.setChildIndex(txt, stage.numChildren - 1)
-		Ticker.on('tick', (e) => {
-			circle.graphics
-				.clear()
-				.setStrokeStyle(3, 'round', 'round')
-				.beginStroke('#9A3B3B')
-				.arc(center.get(0, 0), center.get(1, 0), r, startAngle, angle, false)
-
-			hand.graphics
-				.clear()
-				.setStrokeStyle(3)
-				.beginStroke('#9A3B3B')
-				.moveTo(center.get(0, 0), center.get(1, 0))
-				.lineTo(
-					r * Math.cos(angle) + center.get(0, 0),
-					r * Math.sin(angle) + center.get(1, 0)
-				)
-				.endStroke()
-
-			if (approx(t, 1)) {
-				let fontsize = r / 3.5
-				let y = center.get(1, 0)
-				if (r > 220) {
-					fontsize = 45
-				}
-				if (r < 60) {
-					fontsize = 20
-					y -= r + 15
-				}
-
-				Ticker.removeAllEventListeners()
-				txt = new Text(
-					`${(perfectRate * 100).toFixed(2)}%`,
-					`${fontsize}px "Playpen Sans"`,
-					'black'
-				)
-				txt.x = center.get(0, 0)
-				txt.y = y
-				txt.textBaseline = 'alphabetic'
-				txt.textAlign = 'center'
-				stage.addChild(txt)
-				hand.graphics.clear()
-
-				isCircling = false
+		circling(center, r, perfectRate, () => {
+			let fontsize = r / 3.5
+			let y = center.get(1, 0)
+			if (r > 220) {
+				fontsize = 45
 			}
-			stage.update()
-			angle = 2 * Math.PI * easeInOutCubic(t) + startAngle
-			t += 0.004
+			if (r < 60) {
+				fontsize = 20
+				y -= r + 15
+			}
+
+			percentTxt = new Text(
+				`${(perfectRate * 100).toFixed(1)}%`,
+				`${fontsize}px "Playpen Sans"`,
+				'black'
+			)
+			percentTxt.x = center.get(0, 0)
+			percentTxt.y = y
+			percentTxt.textBaseline = 'alphabetic'
+			percentTxt.textAlign = 'center'
+			stage.addChild(percentTxt)
+			handClock.graphics.clear()
+
+			if (perfectRate > bestScore) {
+				bestScore = perfectRate
+				localStorage.setItem('bestScore', bestScore.toString())
+				msg = `New best score!`
+			}
 		})
 	}
 </script>
@@ -218,35 +238,40 @@
 		graphicPoints.removeAllChildren()
 		circle.graphics.clear()
 		errMsg = ''
-		txt.text = ''
+		msg = bestScore != 0 ? `Personal record: ${(bestScore * 100).toFixed(1)}%` : ''
+		percentTxt.text = ''
 		stage.update()
 	}}
-	on:mouseup={() => {
-		isDrawing = false
-		calculateScore()
-	}}
+	on:mouseup={onMouseUp}
 />
 
 <canvas bind:this={canvas} width="1000" height="1000" />
 
 {#if !isStart}
-	<div class="header">
+	<div transition:fade class="header">
 		<h1>Can you draw a perfect circle?</h1>
 	</div>
 {/if}
-{#if errMsg.length > 0}
-	<p class="errMsg">{errMsg}</p>
-{/if}
-<div class="info"></div>
+{#key errMsg + msg}
+	<p transition:slide class="msg">{errMsg || msg}</p>
+{/key}
+<div class="info">
+	<a target="_blank" href="https://github.com/balldk/perfect-circle"
+		><Fa icon={faGithub} size="2x" scale={0.95} /></a
+	>
+	<a target="_blank" href="https://www.facebook.com/code.van.code.vo"
+		><Fa icon={faFacebook} size="2x" scale={0.95} /></a
+	>
+</div>
 
-<style>
+<style lang="scss">
 	canvas {
 		position: fixed;
 		left: 0;
 		top: 0;
 		background-color: rgb(255, 245, 234);
 	}
-	.errMsg {
+	.msg {
 		font-family: 'Playpen Sans', cursive;
 		position: fixed;
 		display: block;
@@ -268,5 +293,17 @@
 		font-variation-settings:
 			'MORF' 17,
 			'SHLN' 50;
+	}
+	.info {
+		position: fixed;
+		bottom: 0;
+		right: 0;
+		width: 100px;
+		height: 50px;
+
+		a {
+			color: black;
+			margin-left: 5px;
+		}
 	}
 </style>

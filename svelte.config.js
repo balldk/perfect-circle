@@ -16,6 +16,7 @@ const config = {
 		paths: {
 			base: process.argv.includes('dev') ? '' : '/perfect-circle',
 		},
+		appDir: 'app',
 	},
 }
 
