@@ -6,7 +6,6 @@
 	let isDrawing = false
 	let isCircling = false
 	let isStart = false
-	let isEnd = false
 
 	let canvas: HTMLCanvasElement
 	let stage: Stage
@@ -19,6 +18,29 @@
 	let points = new Matrix([[0], [0]])
 	let n = 0
 	let errMsg = ''
+
+	onMount(() => {
+		const dpr = 1.4
+
+		// Set the "actual" size of the canvas
+		canvas.width = window.innerWidth * dpr
+		canvas.height = window.innerHeight * dpr
+
+		// Set the "drawn" size of the canvas
+		canvas.style.width = `${window.innerWidth}px`
+		canvas.style.height = `${window.innerHeight}px`
+
+		stage = new Stage(canvas)
+		stage.scaleX = dpr
+		stage.scaleY = dpr
+		stage.addChild(circle)
+		stage.addChild(hand)
+		stage.addChild(graphicPoints)
+		stage.addChild(txt)
+
+		Ticker.framerate = 20
+		Ticker.interval = 1
+	})
 
 	function draw(e: MouseEvent) {
 		if (isDrawing && !isCircling) {
@@ -177,36 +199,12 @@
 				hand.graphics.clear()
 
 				isCircling = false
-				isEnd = true
 			}
 			stage.update()
 			angle = 2 * Math.PI * easeInOutCubic(t) + startAngle
 			t += 0.004
 		})
 	}
-
-	onMount(() => {
-		const dpr = 1.4
-
-		// Set the "actual" size of the canvas
-		canvas.width = window.innerWidth * dpr
-		canvas.height = window.innerHeight * dpr
-
-		// Set the "drawn" size of the canvas
-		canvas.style.width = `${window.innerWidth}px`
-		canvas.style.height = `${window.innerHeight}px`
-
-		stage = new Stage(canvas)
-		stage.scaleX = dpr
-		stage.scaleY = dpr
-		stage.addChild(circle)
-		stage.addChild(hand)
-		stage.addChild(graphicPoints)
-		stage.addChild(txt)
-
-		Ticker.framerate = 20
-		Ticker.interval = 1
-	})
 </script>
 
 <svelte:window
