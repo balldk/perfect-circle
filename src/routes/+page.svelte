@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { Matrix } from 'ml-matrix'
 	import { Stage, Shape, Ticker, Container, Text } from '@createjs/easeljs'
+
 	import { onMount } from 'svelte'
 	import { approx, easeInOutCubic } from '$lib/helpers'
 	import { fade, slide } from 'svelte/transition'
 
 	import Fa from 'svelte-fa'
 	import { faGithub, faFacebook } from '@fortawesome/free-brands-svg-icons'
+	import { faMugHot } from '@fortawesome/free-solid-svg-icons'
 
 	const primaryColor = '#9A3B3B'
 
@@ -26,6 +28,12 @@
 	let errMsg = ''
 	let msg = ''
 	let bestScore = 0
+
+	const infos = [
+		{ link: 'https://github.com/balldk/perfect-circle', icon: faGithub },
+		{ link: 'https://www.facebook.com/code.van.code.vo', icon: faFacebook },
+		{ link: 'https://www.buymeacoffee.com/balldk', icon: faMugHot },
+	]
 
 	onMount(() => {
 		const dpr = 1.4
@@ -184,7 +192,9 @@
 		const endPoint = points.getColumnVector(points.columns - 1)
 		const dist = Matrix.subtract(startPoint, endPoint).norm() * normCoef
 
-		if (perfectRate <= 0.65) {
+		if (r <= 20) {
+			errMsg = 'Too small'
+		} else if (perfectRate <= 0.65) {
 			errMsg = 'Not a circle at all'
 		} else if (dist >= 40) {
 			errMsg = 'Not a closed loop'
@@ -221,7 +231,16 @@
 			if (perfectRate > bestScore) {
 				bestScore = perfectRate
 				localStorage.setItem('bestScore', bestScore.toString())
-				msg = `New best score!`
+
+				if (perfectRate >= 0.98) {
+					msg = 'I think you cheated'
+				} else if (perfectRate >= 0.97) {
+					msg = 'Impossible!!!'
+				} else if (perfectRate >= 0.96) {
+					msg = 'You are a beast!'
+				} else {
+					msg = `New best score!`
+				}
 			}
 		})
 	}
@@ -256,12 +275,9 @@
 	<p transition:slide class="msg">{errMsg || msg}</p>
 {/key}
 <div class="info">
-	<a target="_blank" href="https://github.com/balldk/perfect-circle"
-		><Fa icon={faGithub} size="2x" scale={0.95} /></a
-	>
-	<a target="_blank" href="https://www.facebook.com/code.van.code.vo"
-		><Fa icon={faFacebook} size="2x" scale={0.95} /></a
-	>
+	{#each infos as info}
+		<a target="_blank" href={info.link}><Fa icon={info.icon} size="2x" scale={0.95} /></a>
+	{/each}
 </div>
 
 <style lang="scss">
@@ -298,12 +314,17 @@
 		position: fixed;
 		bottom: 0;
 		right: 0;
-		width: 100px;
+		width: 140px;
 		height: 50px;
 
 		a {
+			display: inline-block;
 			color: black;
-			margin-left: 5px;
+			margin-left: 8px;
+			transition: all 0.3s;
+			&:hover {
+				transform: translateY(-1px);
+			}
 		}
 	}
 </style>
